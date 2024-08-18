@@ -1,0 +1,1 @@
+Nextflow workflow for RNA Seq Illumina PE unstranded processing.
