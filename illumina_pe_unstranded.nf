@@ -14,6 +14,8 @@ log.info """\
 process FASTQC {
     container 'biocontainers/fastqc:v0.11.5'
     
+    publishDir params.outdir, mode:'copy'
+
     tag "FastQC on $sample_id"
 
     input:
@@ -29,11 +31,27 @@ process FASTQC {
     """ 
 }
 
+process MULTIQC {
+    container 'multiqc/multiqc:latest'
+    publishDir params.outdir, mode:'copy'
+
+    input:
+    path '*'
+
+    output:
+    path 'multiqc_report.html'
+
+    script:
+    """
+    multiqc .
+    """
+}
+
 workflow {
     Channel 
         .fromFilePairs( params.reads, checkIfExists:true )
         .set { read_pairs_ch }
 
     fastqc_ch = FASTQC(read_pairs_ch)
-
+    MULTIQC(fastqc_ch.collect())
 }
