@@ -47,6 +47,22 @@ process MULTIQC {
     """
 }
 
+process TRIMMOMATIC {
+    container 'quay.io/biocontainers/trimmomatic:0.39--1'
+
+    input:
+    tuple val(sample_id), path(reads)
+
+    output:
+    path "trimmomatic_${sample_id}_logs"
+
+    script:
+    """
+    mkdir trimmomatic_${sample_id}_logs
+    trimmomatic PE -threads ${task.cpus} ${reads} -baseout ${sample_id} LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:51
+    """
+}
+
 workflow {
     Channel 
         .fromFilePairs( params.reads, checkIfExists:true )
@@ -54,4 +70,5 @@ workflow {
 
     fastqc_ch = FASTQC(read_pairs_ch)
     MULTIQC(fastqc_ch.collect())
+    trim_ch = TRIMMOMATIC(read_pairs_ch)
 }
