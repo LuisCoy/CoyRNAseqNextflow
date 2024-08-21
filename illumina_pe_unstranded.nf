@@ -1,7 +1,7 @@
 #! /usr/bin/env nextflow
 
 params.reads = "$projectDir/data/reads_{1,2}.fq"
-params.outdir = "results" 
+params.outdir = "results"
 
 log.info """\
     ILLUMINA PR UNSTRANDED WORKFLOW
@@ -13,8 +13,10 @@ log.info """\
 
 process FASTQC {
     container 'biocontainers/fastqc:v0.11.5'
-    
+
     publishDir params.outdir, mode:'copy'
+
+    debug "Using ${task.cpus} CPUs for fastqc"
 
     tag "FastQC on $sample_id"
 
@@ -27,14 +29,15 @@ process FASTQC {
     script:
     """
     mkdir fastqc_${sample_id}_logs
-    fastqc ${reads} -o fastqc_${sample_id}_logs
+    fastqc ${reads} -o fastqc_${sample_id}_logs --threads ${task.cpus}
     """ 
 }
 
 process MULTIQC {
     container 'multiqc/multiqc:latest'
+    
     publishDir params.outdir, mode:'copy'
-
+    
     input:
     path '*'
 
@@ -50,6 +53,8 @@ process MULTIQC {
 process TRIMMOMATIC {
     container 'quay.io/biocontainers/trimmomatic:0.39--1'
 
+    debug "Using ${task.cpus} CPUs for trimmomatic"
+
     input:
     tuple val(sample_id), path(reads)
 
@@ -59,7 +64,7 @@ process TRIMMOMATIC {
     script:
     """
     mkdir trimmomatic_${sample_id}_logs
-    trimmomatic PE -threads ${task.cpus} ${reads} -baseout ${sample_id} LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:51
+    trimmomatic PE -threads ${task.cpus} ${reads} trimmomatic_${sample_id}_logs/${sample_id}_1P.fq.gz trimmomatic_${sample_id}_logs/${sample_id}_1U.fq.gz trimmomatic_${sample_id}_logs/${sample_id}_2P.fq.gz trimmomatic_${sample_id}_logs/${sample_id}_2U.fq.gz LEADING:3 TRAILING:3 SLIDINGWINDOW:4:20 MINLEN:51
     """
 }
 
