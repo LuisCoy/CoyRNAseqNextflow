@@ -93,7 +93,7 @@ process TRIMMOMATIC {
 
     output:
     tuple val(sample_id), path("${sample_id}_1P.fq.gz"), path("${sample_id}_2P.fq.gz"), emit: trimmed_reads
-    path "trimmomatic_${sample_id}_logs"
+    path "trimmomatic_${sample_id}_logs", emit: trimmomatic_logs
 
     script:
     """
@@ -159,7 +159,6 @@ process STAR_ALIGN{
     output:
     tuple val(sample_id), path("${sample_id}Aligned.sortedByCoord.out.bam"), emit: aligned_sorted
     
-
     script:
     """
     echo "Debug: Sample ID is $sample_id"
@@ -185,19 +184,75 @@ process STAR_ALIGN{
     """
 }
 
+//flagstat
+process FLAGSTAT {
+    tag "Alignment QC on $sample_id"
+
+    publishDir {"${params.outdir}/Alignment_QC"}, mode: "copy"
+
+    input: 
+    tuple val(sample_id), path(aligned_bam)
+
+    output:
+    path "${sample_id}_flagstat.txt"
+
+    script:
+    """
+    samtools flagstat ${aligned_bam} > ${sample_id}_flagstat.txt
+    """
+}
+
+//Count
+process HTSEQ_COUNT{
+
+    input:
+    tuple val(sample_id), path(aligned_bam)
+    path ref_annotations
+
+    output:
+    tuple val(sample_id), path("${sample_id}_count.txt"), emit: htseq_count
+
+    script:
+    """
+    htseq-count \\
+        -m union \\
+        -s no \\
+        -r pos \\
+        -a 10 \\
+        -i gene_id \\
+        -f bam \\
+        ${aligned_bam} \\
+        ${ref_annotations} \\
+        > ${sample_id}_count.txt
+    """
+
+}
+
 //Workflow
 workflow {
     ref_assembly_ch = channel.fromPath(params.ref_assembly, checkIfExists:true)
     ref_annotations_ch = channel.fromPath(params.ref_annotations,  checkIfExists:true)
-    star_genome_gen_ch = STAR_GENOME_GEN(ref_assembly_ch, ref_annotations_ch)
     Channel 
         .fromFilePairs( params.reads, checkIfExists:true )
         .set { read_pairs_ch }
-
+    star_genome_gen_ch = STAR_GENOME_GEN(ref_assembly_ch, ref_annotations_ch)
+    star_genome_gen_ch.view({"Star genome generator output: $it"})
+    
     fastqc_ch = FASTQC(read_pairs_ch)
     MULTIQC(fastqc_ch.collect())
+    
     trim_ch = TRIMMOMATIC(read_pairs_ch)
+    trim_ch.trimmed_reads.view({"Trimmomatic output: $it"})
+    
     fastqc_trimmed_ch = FASTQC_TRIMMED(trim_ch.trimmed_reads)
     MULTIQC_TRIMMED(fastqc_trimmed_ch.collect())
+    
     star_align_ch = STAR_ALIGN(star_genome_gen_ch.genome_index, trim_ch.trimmed_reads)
+    star_align_ch.view({"Star align output: $it"})
+
+    starqc_ch = FLAGSTAT(star_align_ch.aligned_sorted)
+    starqc_ch.view({"Alignment QC output: $it"})
+
+    htseq_count_ch = HTSEQ_COUNT(star_align_ch.aligned_sorted, ref_annotations_ch)
+    htseq_count_ch.view({"htseq count output: $it"})
 }
