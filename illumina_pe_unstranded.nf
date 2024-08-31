@@ -188,7 +188,7 @@ process STAR_ALIGN{
 process FLAGSTAT {
     tag "Alignment QC on $sample_id"
 
-    publishDir {"${params.outdir}/Alignment_QC"}, mode: "copy"
+    publishDir {"${params.outdir}/alignment_QC"}, mode: "copy"
 
     input: 
     tuple val(sample_id), path(aligned_bam)
@@ -204,6 +204,8 @@ process FLAGSTAT {
 
 //Count
 process HTSEQ_COUNT{
+    publishDir {"${params.outdir}/counts"}, mode:'copy'
+    tag "Counting $sample_id"
 
     input:
     tuple val(sample_id), path(aligned_bam)
@@ -227,6 +229,8 @@ process HTSEQ_COUNT{
     """
 
 }
+//QC count
+
 
 //Workflow
 workflow {
