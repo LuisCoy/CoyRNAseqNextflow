@@ -20,8 +20,8 @@ log.info """\
     .stripIndent()
 
 //Index reference genome
+//Requires a reference genome assembly file and matching annotation file
 process STAR_GENOME_GEN {
-    container 'alexdobin/star:2.6.1d'
 
     input:
     path ref_assembly
@@ -43,8 +43,8 @@ process STAR_GENOME_GEN {
     """
 }
 //Fastqc on raw reads
+//Quality control performed on paired read files
 process FASTQC {
-    container 'biocontainers/fastqc:v0.11.5'
 
     publishDir params.outdir, mode:'copy'
 
@@ -65,8 +65,8 @@ process FASTQC {
     """ 
 }
 //Multiqc on raw reads
+//Combines fastqc files together into a single report
 process MULTIQC {
-    container 'multiqc/multiqc:latest'
 
     publishDir params.outdir, mode:'copy'
     
@@ -81,11 +81,14 @@ process MULTIQC {
     multiqc .
     """
 }
-//Trim raw reads
+// Trim raw reads
+// Mode: Paired-end 
+// Output: P, Paired output file; U, Unpaired output file
+// ILLUMINACLIP: Adapter clipping using TruSeq3 Illumina adapters
+// LEADING/TRAILING: Trims bases at the start (leading) or end (trailing) if below a quality of 3
+// SLIDINGWINDOW: Trims once the average quality of 4 bases falls below 20 
+// MINLEN: Minimum length of read: 51 
 process TRIMMOMATIC {
-    debug true
-    container 'quay.io/biocontainers/trimmomatic:0.39--1'
-    debug "Using ${task.cpus} CPUs for trimmomatic"
     tag "Trimmomatic on $sample_id"
 
     input:
@@ -111,8 +114,8 @@ process TRIMMOMATIC {
     """
 }
 //Fastqc on trimmed reads
+//Quality control performed on paired trimmed read files
 process FASTQC_TRIMMED {
-    container 'biocontainers/fastqc:v0.11.5'
     publishDir {"${params.outdir}/trimmed"}, mode:'copy'
     tag "FastQC on $sample_id"
 
@@ -131,8 +134,8 @@ process FASTQC_TRIMMED {
     """ 
 }
 //Multiqc on trimmed reads
+//Combines trimmed fastqc files into a single report
 process MULTIQC_TRIMMED {
-    container 'multiqc/multiqc:latest'
 
     publishDir {"${params.outdir}/trimmed"}, mode:'copy'
     
@@ -148,8 +151,8 @@ process MULTIQC_TRIMMED {
     """
 }
 //Star alignment
+//Aligns trimmed reads to reference genome. Outputs BAM file sorted by corrdinate.
 process STAR_ALIGN{
-    container 'alexdobin/star:2.6.1d'
     tag "Star alignment on $sample_id"
 
     input:
@@ -185,6 +188,7 @@ process STAR_ALIGN{
 }
 
 //flagstat
+//Quality control for alignment (Number of reads aligned correctly)
 process FLAGSTAT {
     tag "Alignment QC on $sample_id"
 
@@ -203,6 +207,14 @@ process FLAGSTAT {
 }
 
 //Count
+//Counts reads aligned to each gene.
+//Requires genome indices and reference annotation
+// mode: union (mode to handle overlapping more than one feature)
+// stranded: Unstranded
+// order: alignment is ordered by position (pos)
+// a: skip reads with alignment scores below 10
+// idattr: GFF attribute to be used as feature ID (gene_id)
+// format: bam input file 
 process HTSEQ_COUNT{
     publishDir {"${params.outdir}/counts"}, mode:'copy'
     tag "Counting $sample_id"
@@ -217,12 +229,12 @@ process HTSEQ_COUNT{
     script:
     """
     htseq-count \\
-        -m union \\
-        -s no \\
-        -r pos \\
+        --mode union \\
+        --stranded no \\
+        --order pos \\
         -a 10 \\
-        -i gene_id \\
-        -f bam \\
+        --idattr gene_id \\
+        --format bam \\
         ${aligned_bam} \\
         ${ref_annotations} \\
         > ${sample_id}_count.txt
@@ -230,7 +242,22 @@ process HTSEQ_COUNT{
 
 }
 //QC count
+//Quality control using multiqc 
+process MULTIQC_COUNT {
 
+    publishDir {"${params.outdir}/counts"}, mode:'copy'
+    
+    input:
+    tuple val(sample_id), path(count)
+
+    output:
+    path "${sample_id}_multiqc_report.html"
+
+    script:
+    """
+    multiqc ${count} -n ${sample_id}_multiqc_report.html
+    """
+}
 
 //Workflow
 workflow {
@@ -259,4 +286,7 @@ workflow {
 
     htseq_count_ch = HTSEQ_COUNT(star_align_ch.aligned_sorted, ref_annotations_ch)
     htseq_count_ch.view({"htseq count output: $it"})
+
+    multiqc_count_ch = MULTIQC_COUNT(htseq_count_ch.htseq_count)
+    multiqc_count_ch.view({"MultiQC count output: $it"})
 }
